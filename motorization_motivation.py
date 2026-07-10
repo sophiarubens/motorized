@@ -166,17 +166,14 @@ for inds, logdet in fishers.items():
 print(max_inds, logdet)
 
 # Mike's version
-az_interp, za_interp = get_symmetric_az_za_interp(az_scatter, za_scatter, np.array(max_inds))
+az_interp, za_interp = get_symmetric_az_za_interp(az_scatter, za_scatter, np.array(max_inds), north_south_stripes=True)
 fig, ax = plt.subplots(subplot_kw={"projection": "polar"},
                        figsize=(6.5, 6.5))
 ax.scatter(az_interp, np.rad2deg(za_interp), s=1)
 fig.savefig(f"{outdir}/Mike_Aman_optimal_pattern.png",dpi=dpiuse)
 
-# unmotorized version = no sinusoids
-# guaranteed motorized version = small sinusoids
-# enhanced motorized version = broad sinusoids
-
 """### See how it does"""
+assert 1==0, "still refining "
 
 best_Dmatr, az, za, _, sb_for_els = get_Dmatr_from_trees(np.array(max_inds), get_az_za=True)
 az_interp, za_interp, _, _, interped_beam, finite = prep_for_interp(az, za, get_beam=True, unpert_sb=sb_for_els,

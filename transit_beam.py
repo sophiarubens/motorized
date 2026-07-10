@@ -76,8 +76,14 @@ lon = (119 + 37/60 + 15/3600)
 # source parameters
 planets = load('de421.bsp')
 earth = planets['earth']
-CasA = Star(ra_hours=(23, 23, 26.0), dec_degrees=(58, 48, 41))
+CasA_RA_hrs=(23, 23, 26.0)
+CasA_dec_deg=(58, 48, 41)
+CasA_dec_deg_decimal= 58 + 48/60 + 41/3600
+CasA = Star(ra_hours=CasA_RA_hrs, dec_degrees=CasA_dec_deg)
 CygA = Star(ra_hours=(19, 59, 28.3566), dec_degrees=(40, 44, 2.096))
+# TauA = Star(ra_hours=(), dec_degrees=())
+# PicA = Star(ra_hours=(), dec_degrees=())
+# VirA = Star(ra_hours=(), dec_degrees=())
 Zen = Star(ra_hours=(19, 59, 28.3566), dec_degrees=(lat))
 NCP = Star(ra_hours=(0), dec_degrees=(90))
 
@@ -87,6 +93,8 @@ UVB.peak_normalize()
 UVB.efield_to_power(calc_cross_pols=False)
 
 ts = load.timescale()
+
+nod_params_Evan=[2, np.pi/300] # 2º and 1º/ 10 s
 
 """# Make a little library"""
 
@@ -197,7 +205,6 @@ def get_points_within_view(az_deg, alt_deg, fov=10.):
         za_within_view = None
     return az_within_view, za_within_view
 
-
 def plot_fullsky_tracks(sky, x_ncp, y_ncp, name="sky_tracks"):
     """
     Plot tracks from draw_tracks horizon-to-horizon
@@ -283,7 +290,9 @@ def get_alt_az_deg(apparent):
 
     return alt_deg, az_deg
 
-def get_DRAO_apparent(el, t, mode="rot"):
+def get_DRAO_apparent(el, t, mode="rot", 
+                      nod_params=nod_params_Evan # nod parameters amp,freq fall back on Evan's starting point
+                      ):
     """
     Construct a DRAO observer position and compute the apparent position of a
     source at a sequence of times.
@@ -305,7 +314,15 @@ def get_DRAO_apparent(el, t, mode="rot"):
             Apparent position of the source as seen from DRAO at each time in t.
     """
     DRAO = wgs84.latlon((lat+el)*N, lon*W, 545.671) # offset lat by el to simulate el change
-    src = Zen if mode == "rot" else CasA
+    # src = Zen if mode == "rot" else CasA # Mike's old syntax
+    if mode=="rot":
+        src=Zen
+    elif mode=="el":
+        src=CasA
+    elif mode=="nod": # based upon CasA but layer the nod on top
+        nod_amp,nod_freq=nod_params
+        modulated_CasA_dec_deg=CasA_dec_deg_decimal+nod_amp*np.sin(nod_freq*t)
+        src=Star(ra_hours=CasA_RA_hrs, dec_degrees=modulated_CasA_dec_deg)
     apparent = (earth + DRAO).at(t).observe(src).apparent()
 
     return DRAO, apparent
@@ -334,7 +351,7 @@ def get_xy_ncp(DRAO, t):
 
     return x_ncp, y_ncp
 
-def get_coord_wrapper(t, el=0, mode="rot", plot=True):
+def get_coord_wrapper(t, el=0, mode="rot", nod_params=nod_params_Evan, plot=True):
     """
     Convenience wrapper that computes the apparent alt/az of a source and,
     optionally, the disk coordinates of the NCP.
@@ -357,7 +374,7 @@ def get_coord_wrapper(t, el=0, mode="rot", plot=True):
         x_ncp, y_ncp (array or None):
             Disk coordinates of the NCP, or None if plot is False.
     """
-    DRAO, apparent = get_DRAO_apparent(el, t, mode=mode)
+    DRAO, apparent = get_DRAO_apparent(el, t, mode=mode, nod_params=nod_params)
     alt_deg, az_deg = get_alt_az_deg(apparent)
     if plot:
         x_ncp, y_ncp = get_xy_ncp(DRAO, t)
@@ -399,7 +416,7 @@ def view_cutoff_and_xy(alt_deg, az_deg, rot_deg=0, plot=True):
 
     return az_within_view, za_within_view, x, y
 
-def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="rot",
+def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="rot", nod_params=None,
                 el_delta=0.5):
     """
     Draw some tracks.
@@ -423,40 +440,36 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
         za_scatter (array):
             Zenith angles (interpreted as boresight angles) traced within FoV.
     """
-    assert mode in ['rot', 'el'], f"{mode} is an invalid mode. Must be 'rot' or 'el'."
+    assert mode in ['rot', 'el', 'nod'], f"{mode} is an invalid mode. Must be 'rot' or 'el'."
 
-    t = ts.utc(2026, 2, 16, 0, np.arange(0, 1440, tres))
+    t = ts.utc(2026, 7, 10, 0, np.arange(0, 1440, tres)) # discretized into !minutes!
 
     if mode == "rot":
         alt_deg, az_deg, x_ncp, y_ncp = get_coord_wrapper(t, plot=plot)
         iterator = rots
         bad_inds = None
     else:
-        # If the telescope is pointed at zenith_el CasA passes through the boresite
+        # If the telescope is pointed at zenith_el CasA passes through the boresight
         zenith_el = CasA.dec.degrees - lat
         # Try to avoid some edge effects
         els = np.arange(zenith_el-10 + el_delta, zenith_el + 10, el_delta)
         iterator = els
-
-
 
     sky = np.zeros((n, n), dtype=bool)
 
     az_scatter = []
     za_scatter = []
 
-
     for iter_ind, iter_val in enumerate(iterator):
         # Map track to x,y and then to pixels
-        if mode == "el":
-            alt_deg, az_deg, x_ncp, y_ncp = get_coord_wrapper(t, el=iter_val, mode="el", plot=plot)
-
-            az_within_view, za_within_view, x, y = view_cutoff_and_xy(alt_deg, az_deg, rot_deg=0,
-                                                                      plot=plot)
-
-        else:
+        if mode == "rot":
             az_within_view, za_within_view, x, y = view_cutoff_and_xy(alt_deg, az_deg, rot_deg=iter_val,
                                                                       plot=plot)
+        else:
+            alt_deg, az_deg, x_ncp, y_ncp = get_coord_wrapper(t, el=iter_val, mode=mode, nod_params=nod_params, plot=plot)
+ 
+            az_within_view, za_within_view, x, y = view_cutoff_and_xy(alt_deg, az_deg, rot_deg=0,
+                                                                      plot=plot)        
 
         if plot:
             i, j = xy_to_ij(x, y, n=n)
@@ -482,9 +495,6 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
 
 
     return az_scatter, za_scatter
-
-
-
 
 def plot_tracks_within_fov(az_scatter, za_scatter):
     """
@@ -536,7 +546,6 @@ def get_perp_slices(az_interp, za_interp):
 
     return new_az_interp, new_za_interp
 
-
 def prep_for_interp(az_interp, za_interp, get_beam=True, unpert_sb=unpert_sb, use_perp_slices=True):
     """
     Prepare interpolation inputs by constructing the Fourier-Bessel basis matrices and,
@@ -578,6 +587,7 @@ def prep_for_interp(az_interp, za_interp, get_beam=True, unpert_sb=unpert_sb, us
     else:
         new_az_interp = np.copy(az_interp)
         new_za_interp = np.copy(za_interp)
+    print("new_az_interp, new_za_interp should not be None:",new_az_interp, new_za_interp)
     bess_matr, trig_matr = unpert_sb.get_dmatr_interp(new_az_interp, new_za_interp)
     if get_beam:
         interped_beam = np.log(UVB.interp(az_array=new_az_interp % (2 * np.pi),
@@ -683,7 +693,6 @@ def get_Dmatr(bess_matr, trig_matr, dm=12, Nrad=50, recon=False, Ninterp=0):
         Dmatr = Dmatr.reshape(Ninterp, Nparam)
     return Dmatr
 
-
 def weighted_least_squares(Dmatr, weights, y):
     """
     Compute solution, x, to weighted least squares problem Dmatr @ x = y.
@@ -752,7 +761,7 @@ def get_symmetric_inds(inds,az_scatter):
 
     return symmetric_inds
 
-def get_symmetric_az_za_interp(az_scatter, za_scatter, inds):
+def get_symmetric_az_za_interp(az_scatter, za_scatter, inds, north_south_stripes=False):
     """
 
     Make a function for pulling symmetric track sets, and plot an example
@@ -783,93 +792,10 @@ def get_symmetric_az_za_interp(az_scatter, za_scatter, inds):
     za_interp = np.hstack(za_interp)
 
     # Get the vertical stripes
-    az_interp, za_interp = get_perp_slices(az_interp, za_interp)
+    if north_south_stripes:
+        az_interp, za_interp = get_perp_slices(az_interp, za_interp)
 
     return az_interp, za_interp
-
-def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="rot",
-                el_delta=0.5):
-    """
-    Draw some tracks.
-    
-    Args:
-        tres (float):
-            Time resolution in _minutes_.
-        rots (float_array):
-            Rotations to perform
-        n (int):
-            Size of grid to draw on
-        plot (bool):
-            Whether to draw horizon-to-horizon plot of the tracks
-        mode (str):
-            'rot' (for rotations) or 'el' for elevations
-        el_delta (float):
-            How finely to space the elevation shifts, in degrees.
-    Returns:
-        az_scatter (array):
-            Azimuths traced within FoV.
-        za_scatter (array):
-            Zenith angles (interpreted as boresight angles) traced within FoV.
-    """
-    assert mode in ['rot', 'el'], f"{mode} is an invalid mode. Must be 'rot' or 'el'."
-
-    t = ts.utc(2026, 2, 16, 0, np.arange(0, 1440, tres))
-    
-    if mode == "rot":   
-        alt_deg, az_deg, x_ncp, y_ncp = get_coord_wrapper(t, plot=plot)
-        iterator = rots
-        bad_inds = None
-    else:
-        # If the telescope is pointed at zenith_el CasA passes through the boresite
-        zenith_el = CasA.dec.degrees - lat
-        # Try to avoid some edge effects
-        els = np.arange(zenith_el-10 + el_delta, zenith_el + 10, el_delta)
-        iterator = els
-        
-
-
-    sky = np.zeros((n, n), dtype=bool)
-    
-    az_scatter = []
-    za_scatter = []
-
-    
-    for iter_ind, iter_val in enumerate(iterator):
-        # Map track to x,y and then to pixels
-        if mode == "el":
-            alt_deg, az_deg, x_ncp, y_ncp = get_coord_wrapper(t, el=iter_val, mode="el", plot=plot)
-            
-            az_within_view, za_within_view, x, y = view_cutoff_and_xy(alt_deg, az_deg, rot_deg=0,
-                                                                      plot=plot)
-            
-        else:
-            az_within_view, za_within_view, x, y = view_cutoff_and_xy(alt_deg, az_deg, rot_deg=iter_val,
-                                                                      plot=plot)
-        
-        if plot:
-            i, j = xy_to_ij(x, y, n=n)
-            sky[i, j] = True
-
-        if az_within_view is not None:
-            if mode == "rot": # FIXME: make these both compatible with append
-                az_scatter.extend((np.pi/2 - az_within_view) % (2 * np.pi)) # Change to E to N convention
-                za_scatter.extend(za_within_view)
-            else:
-                az_scatter.append((np.pi/2 - az_within_view) % (2 * np.pi)) # Change to E to N convention
-                za_scatter.append(za_within_view)
-        else:
-            print(f"Failed track at iterator index: {iter_ind}")
-                
-    
-    if mode == "rot": 
-        az_scatter = np.array(az_scatter)
-        za_scatter = np.array(za_scatter)
-
-    if plot:
-        plot_fullsky_tracks(sky, x_ncp, y_ncp)
-        
-    
-    return az_scatter, za_scatter
 
 def get_Dmatr_from_trees(inds, get_az_za=False, get_noise_sigma=False):
     """
