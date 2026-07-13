@@ -81,7 +81,7 @@ CasA_dec_deg=(58, 48, 41)
 CasA_dec_deg_decimal= 58 + 48/60 + 41/3600
 CasA = Star(ra_hours=CasA_RA_hrs, dec_degrees=CasA_dec_deg)
 CygA = Star(ra_hours=(19, 59, 28.3566), dec_degrees=(40, 44, 2.096))
-# TauA = Star(ra_hours=(), dec_degrees=())
+# TauA = Star(ra_hours=(), dec_degrees=()) https://research.csiro.au/racs/home/gallery/a-sources/
 # PicA = Star(ra_hours=(), dec_degrees=())
 # VirA = Star(ra_hours=(), dec_degrees=())
 Zen = Star(ra_hours=(19, 59, 28.3566), dec_degrees=(lat))
@@ -453,6 +453,7 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
         zenith_el = CasA.dec.degrees - lat
         # Try to avoid some edge effects
         els = np.arange(zenith_el-10 + el_delta, zenith_el + 10, el_delta)
+        print("draw_tracks: len(els) =",len(els))
         iterator = els
 
     sky = np.zeros((n, n), dtype=bool)
@@ -493,7 +494,7 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
     if plot:
         plot_fullsky_tracks(sky, x_ncp, y_ncp)
 
-
+    print("at the end of draw_tracks: len(az_scatter)=",len(az_scatter))
     return az_scatter, za_scatter
 
 def plot_tracks_within_fov(az_scatter, za_scatter):
@@ -587,7 +588,6 @@ def prep_for_interp(az_interp, za_interp, get_beam=True, unpert_sb=unpert_sb, us
     else:
         new_az_interp = np.copy(az_interp)
         new_za_interp = np.copy(za_interp)
-    print("new_az_interp, new_za_interp should not be None:",new_az_interp, new_za_interp)
     bess_matr, trig_matr = unpert_sb.get_dmatr_interp(new_az_interp, new_za_interp)
     if get_beam:
         interped_beam = np.log(UVB.interp(az_array=new_az_interp % (2 * np.pi),
@@ -745,19 +745,19 @@ def plot_beam_comparison(test_beam, recon, norm=LogNorm(vmin=1e-5, vmax=1)):
 
 def get_symmetric_inds(inds,az_scatter):
     """
-    Take some indices mapping to one half of the FoV and get the symmetric ones, as well as the center index.
+    Take some indices mapping to one half of the FoV and get the symmetric ones, as well as the centre index.
 
     Parameters:
         inds (array):
             The indices for which to get the partner indices.
     Returns:
         symmetric_inds (array):
-            Concatenation of inds, with its partner set, and the center index.
+            Concatenation of inds, with its partner set, and the centre index.
     """
-    center_ind = (len(az_scatter) - 1) // 2
-    assert all(inds < center_ind)
+    centre_ind = (len(az_scatter) - 1) // 2
+    assert all(inds < centre_ind)
     symmetric_inds = np.concatenate([inds, -(inds + 1)])
-    symmetric_inds = np.append(center_ind, symmetric_inds)
+    symmetric_inds = np.append(centre_ind, symmetric_inds)
 
     return symmetric_inds
 
@@ -777,8 +777,8 @@ def get_symmetric_az_za_interp(az_scatter, za_scatter, inds, north_south_stripes
             List where each element is an array of zenith angles for a particular track.
         inds (array_like):
             Indices into the az_scatter and za_scatter lists (i.e. which tracks on one half of the sky to use).
-        center_ind (int):
-            The index of the center track.
+        centre_ind (int):
+            The index of the centre track.
     Returns:
         az_interp, za_interp (array):
             Azimuths and zenith angles to interpolate to (including the perpendicular complement).
@@ -797,7 +797,8 @@ def get_symmetric_az_za_interp(az_scatter, za_scatter, inds, north_south_stripes
 
     return az_interp, za_interp
 
-def get_Dmatr_from_trees(inds, get_az_za=False, get_noise_sigma=False):
+def get_Dmatr_from_trees(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees, 
+                         inds, get_az_za=False, get_noise_sigma=False):
     """
     Grab the appropriate rows of the design matrices from the lists of matrices computed above.
     Optionally get the corresponding az/za and noise standard deviation.
@@ -819,61 +820,8 @@ def get_Dmatr_from_trees(inds, get_az_za=False, get_noise_sigma=False):
         noise_sigma (array or None):
             Noise standard deviation for rows in question.
     """
-    # Make a slightly different sparse_beam object for the elevation computation
-    sb_for_els = sparse_beam.sparse_beam(beamfile, nmax=50,
-                                        mmodes=np.arange(-12, 12),
-                                        za_range=za_range,
-                                        Nfeeds=None,
-                                        alpha=rho_const,
-                                        convert_to_power=True,
-                                        sqrt=False,
-                                        load=False)
-
-    dm = 12
-    Nrad = 25
-    Nparam = 2 * dm * Nrad
-    use_noise_weighting = True
-
-
-    Dmatr_tree_x = []
-    Dmatr_tree_y = []
-
-    if use_noise_weighting:
-        noise_sigma_tree_x = []
-        noise_sigma_tree_y = []
-
-    az_scatter,za_scatter=draw_tracks()
-    for k in range(len(az_scatter)):
-        _, _, bess_matr_x, trig_matr_x, interped_beam_x, _ = prep_for_interp(az_scatter[k],
-                                                                            za_scatter[k],
-                                                                            unpert_sb=sb_for_els,
-                                                                            get_beam=use_noise_weighting,
-                                                                            use_perp_slices=False)
-        _, _, bess_matr_y, trig_matr_y, interped_beam_y, _ = prep_for_interp(az_scatter[k] + np.pi/2,
-                                                                            za_scatter[k],
-                                                                            unpert_sb=sb_for_els,
-                                                                            get_beam=use_noise_weighting,
-                                                                            use_perp_slices=False)
-
-        Tmatr_x = fourier_to_cos_sin(trig_matr_x, dm)
-        Tmatr_y = fourier_to_cos_sin(trig_matr_y, dm)
-
-
-        Ninterp_x = len(interped_beam_x) if use_noise_weighting else len(az_scatter[k])
-        Ninterp_y = len(interped_beam_y) if use_noise_weighting else len(za_scatter[k])
-
-        Dmatr_x = bess_matr_x[:, :Nrad, None] * Tmatr_x[:, None]
-        Dmatr_x = Dmatr_x.reshape(Ninterp_x, Nparam)
-
-        Dmatr_y = bess_matr_y[:, :Nrad, None] * Tmatr_y[:, None]
-        Dmatr_y = Dmatr_y.reshape(Ninterp_y, Nparam)
-
-        Dmatr_tree_x.append(Dmatr_x)
-        Dmatr_tree_y.append(Dmatr_y)
-
-        if use_noise_weighting:
-            noise_sigma_tree_x.append(1e-4 * np.exp(-interped_beam_x))
-            noise_sigma_tree_y.append(1e-4 * np.exp(-interped_beam_y))
+    Dmatr_tree_x,Dmatr_tree_y = Dmatr_trees
+    noise_sigma_tree_x,noise_sigma_tree_y = noise_sigma_trees
 
     symmetric_inds = get_symmetric_inds(inds,az_scatter)
     Dmatr_x = [Dmatr_tree_x[ind] for ind in symmetric_inds] # horizontal slices
@@ -901,9 +849,10 @@ def get_Dmatr_from_trees(inds, get_az_za=False, get_noise_sigma=False):
     else:
         noise_sigma = None
 
-    return Dmatr, az, za, noise_sigma, sb_for_els
+    return Dmatr, az, za, noise_sigma
 
-def fisher_loop(az_scatter, use_noise_weighting=True):
+def fisher_loop(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees, 
+                use_noise_weighting=True):
     """
     Brute force compute Fisher information (specifically, log-det of Fisher matrix) for all symmetric
     5-index combinations (11-night experiments).
@@ -916,11 +865,26 @@ def fisher_loop(az_scatter, use_noise_weighting=True):
         fishers (dict):
             Dictionary where the keys are 5-index tuples and values are log-determinants of the Fisher matrices.
     """
-    center_ind = (len(az_scatter) - 1) // 2
+
+    # multi-night experiment will have az_scatter structure like (N_nights, N_els, N_times)
+    centre_ind = (len(az_scatter) - 1) // 2
+
     fishers = {}
-    for inds in combinations(range(center_ind), 5):
-        Dmatr, _, _, noise_sigma = get_Dmatr_from_trees(np.array(inds), get_noise_sigma=use_noise_weighting)
+    print("fisher_loop: centre_ind =",centre_ind)
+    combinations_for_fisher_loop=combinations(range(centre_ind), 5)
+    print("fisher_loop: len(list(combinations_for_fisher_loop)) =",len(list(combinations_for_fisher_loop)))
+    print("fisher_loop: about to enter loop")
+    k=0
+    for inds in combinations_for_fisher_loop:
+        print("fisher_loop: started loop trip",k)
+        # Dmatr, az, za, noise_sigma, sb_for_els
+        Dmatr, _, _, noise_sigma, _ = get_Dmatr_from_trees(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees,
+                                                           np.array(inds), get_noise_sigma=use_noise_weighting)
         if use_noise_weighting:
             Dmatr /= noise_sigma[:, None]
+        
+        print("fisher_loop: Dmatr.shape=",Dmatr.shape) # going to be very loud because there are so many combinations. I will comment it out as soon as possible, but I need to understand where the leaky step is that is making the Fisher matrices not actually get computed
         fishers[inds] = np.linalg.slogdet(Dmatr.T @ Dmatr)[1]
+        k+=1 # counting manually because this is just a check and the loop is not meant to be index-based
+    print("exited fisher_loop after {:6} iterations".format(k))
     return fishers
