@@ -5,9 +5,9 @@ nod_params_Evan =   [2,  slow_nod_rate]
 nod_params_Sophia = [30, slow_nod_rate]
 
 # same between all cases: CasA, 24 hrs of obs
-experimental_setups=[ ["Mike_Aman", "el",  True,  None              ],    # 90º feed rotation <-> measure using both pols
-                      ["Evan",      "nod", False, nod_params_Evan   ],    # small-amplitude slow nod; realistic transits
-                      ["Sophia",    "nod", False, nod_params_Sophia ]  ]  # large-amplitude slow nod; realistic transits
+experimental_setups=[ ["Sophia",    "nod", False, nod_params_Sophia   ],    # small-amplitude slow nod; realistic transits
+                      ["Mike_Aman", "el",  True,  None              ],    # 90º feed rotation <-> measure using both pols
+                      ["Evan",      "nod", False, nod_params_Evan ]  ]  # large-amplitude slow nod; realistic transits
 
 for experimental_setup in experimental_setups:
     name, mode, north_south_stripes, nod_params = experimental_setup
@@ -16,13 +16,13 @@ for experimental_setup in experimental_setups:
     # >>> >>> >>> preposterously many tracks -> can think of as a not-in-the-programming-sense library to draw from after computing the Fisher-optimal sampling pattern
     az_scatter, za_scatter = draw_tracks(el_delta=0.5, rots=np.atleast_1d((0.,)), # ok to hard-code lack of rotation in this script because none of the hypotheticals involve rotation
                                          mode=mode, nod_params=nod_params, name=name) # compute the tracks
-    print("len(az_scatter) =",len(az_scatter))
     concatenated_az_scatter=np.concatenate(az_scatter)
     concatenated_za_scatter=np.concatenate(za_scatter)
     fig =plot_tracks_within_fov(concatenated_az_scatter,      # plot the tracks (all)
                                 concatenated_za_scatter)
     fig.savefig(f"{outdir}/el_tracks_"+name+".png",dpi=dpiuse)
     print("plotted el tracks")
+    assert 1==0, "ironing out elevation nod encoding"
 
     # >>> >>> >>> cache a bunch of design matrices to speed Fisher computation
     sb_for_els = sparse_beam.sparse_beam(beamfile, nmax=50, 
@@ -86,7 +86,7 @@ for experimental_setup in experimental_setups:
     # >>> >>> >>> pick optimal tracks
     # make sure the Fisher matrices based on the cached design matrices are easily accessible (import or re-compute)
     fisher_path = f"{outdir}fishers_"+name+".yaml"
-    RECALC = False
+    RECALC = True
     # if os.path.exists(fisher_path) and not RECALC:      # import if possible
     if not RECALC:
         with open(fisher_path, "rb") as fisher_file:

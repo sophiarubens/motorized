@@ -16,10 +16,13 @@ import matplotlib.colors as mcolors
 import numpy as np
 from hydra import sparse_beam
 from matplotlib.colors import LogNorm, SymLogNorm
+from astropy import units as u
 
 
 from skyfield.api import load, wgs84, Star
 from skyfield.api import N, W
+from skyfield.positionlib import Apparent
+from skyfield.units import Angle,Distance
 
 plt.rcParams.update(
     {
@@ -93,8 +96,6 @@ UVB.peak_normalize()
 UVB.efield_to_power(calc_cross_pols=False)
 
 ts = load.timescale()
-
-nod_params_Evan=[2, np.pi/300] # 2º and 1º/ 10 s
 
 """# Make a little library"""
 
@@ -291,7 +292,7 @@ def get_alt_az_deg(apparent):
     return alt_deg, az_deg
 
 def get_DRAO_apparent(el, t, mode="rot", 
-                      nod_params=nod_params_Evan # nod parameters amp,freq fall back on Evan's starting point
+                      nod_params=None # nod parameters amp,freq
                       ):
     """
     Construct a DRAO observer position and compute the apparent position of a
@@ -305,7 +306,7 @@ def get_DRAO_apparent(el, t, mode="rot",
         t (skyfield.timelib.Time):
             Array of times at which to evaluate the apparent position.
         mode (str):
-            'rot' to simulate rotations, 'el' to simulate elevation shifts.
+            'rot' to simulate rotations, 'el' to simulate elevation shifts, 'nod' to simulate the motorized experiment.
             Default 'rot'.
     Returns:
         DRAO (skyfield.toposlib.GeographicPosition):
@@ -314,17 +315,44 @@ def get_DRAO_apparent(el, t, mode="rot",
             Apparent position of the source as seen from DRAO at each time in t.
     """
     DRAO = wgs84.latlon((lat+el)*N, lon*W, 545.671) # offset lat by el to simulate el change
-    # src = Zen if mode == "rot" else CasA # Mike's old syntax
     if mode=="rot":
         src=Zen
-    elif mode=="el":
+    elif mode=="el" or mode=="nod":
         src=CasA
-    elif mode=="nod": # based upon CasA but layer the nod on top
-        nod_amp,nod_freq=nod_params
-        modulated_CasA_dec_deg=CasA_dec_deg_decimal+nod_amp*np.sin(nod_freq*t)
-        src=Star(ra_hours=CasA_RA_hrs, dec_degrees=modulated_CasA_dec_deg)
-    apparent = (earth + DRAO).at(t).observe(src).apparent()
+    else:
+        raise ValueError("unknown obs mode. try rot, el, or nod")
 
+    apparent = (earth + DRAO).at(t).observe(src).apparent()
+    if mode=="nod":
+        nod_amp, nod_freq = nod_params
+        astropyified_time0 = t.tt * u.d
+        sinusoid_arg_rad = (nod_freq * astropyified_time0).decompose() * u.rad
+        sinusoid_profile=nod_amp * np.sin(sinusoid_arg_rad)
+        # plt.figure()
+        # plt.plot(sinusoid_profile)
+        # plt.savefig("sinusoid_sanity_check.png")
+        # plt.close() # looks appropriately sinusoidal
+        nod = Angle(degrees=sinusoid_profile)
+
+        ra, dec, dist = apparent.radec()
+        # print("nod.degrees=",nod.degrees) # still time-indexed / did not get collapsed to a single value
+        dec = Angle(degrees=dec.degrees + nod.degrees)
+        print()
+
+        ra_rad = ra.radians *u.rad
+        dec_rad = dec.radians *u.rad
+        dist_au = dist.au
+
+        x = dist_au * np.cos(dec_rad) * np.cos(ra_rad)
+        y = dist_au * np.cos(dec_rad) * np.sin(ra_rad)
+        z = dist_au * np.sin(dec_rad)
+
+        xyz_au = np.array([x.value, y.value, z.value])
+        newpos=Distance(au=xyz_au)
+        apparent.position = newpos
+        apparent.xyz= newpos
+        # apparent.position.au[:] = [x, y, z] # does not yield a plot that gives any indication of successful declination modulation. plotting script is not the problem because "el" mode tracks look normal
+    
     return DRAO, apparent
 
 def get_xy_ncp(DRAO, t):
@@ -351,7 +379,7 @@ def get_xy_ncp(DRAO, t):
 
     return x_ncp, y_ncp
 
-def get_coord_wrapper(t, el=0, mode="rot", nod_params=nod_params_Evan, plot=True):
+def get_coord_wrapper(t, el=0, mode="rot", nod_params=None, plot=True):
     """
     Convenience wrapper that computes the apparent alt/az of a source and,
     optionally, the disk coordinates of the NCP.
@@ -416,7 +444,8 @@ def view_cutoff_and_xy(alt_deg, az_deg, rot_deg=0, plot=True):
 
     return az_within_view, za_within_view, x, y
 
-def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="rot", nod_params=None,
+def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, src=CasA,
+                plot=True, mode="rot", nod_params=None, name="sky_tracks",
                 el_delta=0.5):
     """
     Draw some tracks.
@@ -440,7 +469,7 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
         za_scatter (array):
             Zenith angles (interpreted as boresight angles) traced within FoV.
     """
-    assert mode in ['rot', 'el', 'nod'], f"{mode} is an invalid mode. Must be 'rot' or 'el'."
+    assert mode in ['rot', 'el', 'nod'], f"{mode} is an invalid mode. Must be 'rot', 'el', or 'nod'."
 
     t = ts.utc(2026, 7, 10, 0, np.arange(0, 1440, tres)) # discretized into !minutes!
 
@@ -450,10 +479,9 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
         bad_inds = None
     else:
         # If the telescope is pointed at zenith_el CasA passes through the boresight
-        zenith_el = CasA.dec.degrees - lat
+        zenith_el = src.dec.degrees - lat
         # Try to avoid some edge effects
         els = np.arange(zenith_el-10 + el_delta, zenith_el + 10, el_delta)
-        print("draw_tracks: len(els) =",len(els))
         iterator = els
 
     sky = np.zeros((n, n), dtype=bool)
@@ -492,9 +520,8 @@ def draw_tracks(tres=0.5, rots=np.arange(0, -90, -90), n=181, plot=True, mode="r
         za_scatter = np.array(za_scatter)
 
     if plot:
-        plot_fullsky_tracks(sky, x_ncp, y_ncp)
+        plot_fullsky_tracks(sky, x_ncp, y_ncp, name=name)
 
-    print("at the end of draw_tracks: len(az_scatter)=",len(az_scatter))
     return az_scatter, za_scatter
 
 def plot_tracks_within_fov(az_scatter, za_scatter):
@@ -870,19 +897,14 @@ def fisher_loop(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees,
     centre_ind = (len(az_scatter) - 1) // 2
 
     fishers = {}
-    print("fisher_loop: centre_ind =",centre_ind)
     combinations_for_fisher_loop=combinations(range(centre_ind), 5)
-    print("fisher_loop: about to enter loop")
     k=0
     for inds in list(combinations_for_fisher_loop):
-        # Dmatr, az, za, noise_sigma, sb_for_els
         Dmatr, _, _, noise_sigma = get_Dmatr_from_trees(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees,
                                                            np.array(inds), get_noise_sigma=use_noise_weighting)
         if use_noise_weighting:
             Dmatr /= noise_sigma[:, None]
         
-        print("fisher_loop: Dmatr.shape=",Dmatr.shape) # going to be very loud because there are so many combinations. I will comment it out as soon as possible, but I need to understand where the leaky step is that is making the Fisher matrices not actually get computed
         fishers[inds] = np.linalg.slogdet(Dmatr.T @ Dmatr)[1]
         k+=1 # counting manually because this is just a check and the loop is not meant to be index-based
-    print("exited fisher_loop after {:6} iterations".format(k))
     return fishers
