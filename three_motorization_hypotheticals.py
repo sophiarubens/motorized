@@ -1,16 +1,20 @@
 from transit_beam import *
 
+slow_nod_rate=np.pi/300 /u.min # 1º/ 10 s
+nod_params_Evan =   [2,  slow_nod_rate]
+nod_params_Sophia = [30, slow_nod_rate]
+
 # same between all cases: CasA, 24 hrs of obs
-experimental_setups=[ ["Mike_Aman", "el", True],  # 90º feed rotation <-> measure using both pols
-                      ["Evan", "nod", False],     # small-amplitude slow nod; realistic transits
-                      ["Sophia", "nod", False] ]  # large-amplitude slow nod; realistic transits
+experimental_setups=[ ["Mike_Aman", "el",  True,  None              ],    # 90º feed rotation <-> measure using both pols
+                      ["Evan",      "nod", False, nod_params_Evan   ],    # small-amplitude slow nod; realistic transits
+                      ["Sophia",    "nod", False, nod_params_Sophia ]  ]  # large-amplitude slow nod; realistic transits
 
 for experimental_setup in experimental_setups:
-    name, mode, north_south_stripes = experimental_setup
+    name, mode, north_south_stripes, nod_params = experimental_setup
     # mode="rot" # overwrite for array shape compatibility testing benchmarks
 
     # >>> >>> >>> preposterously many tracks -> can think of as a not-in-the-programming-sense library to draw from after computing the Fisher-optimal sampling pattern
-    az_scatter, za_scatter = draw_tracks(el_delta=0.5, rots=np.atleast_1d((0.,)), mode=mode) # compute the tracks
+    az_scatter, za_scatter = draw_tracks(el_delta=0.5, rots=np.atleast_1d((0.,)), mode=mode, nod_params=nod_params) # compute the tracks
     print("len(az_scatter) =",len(az_scatter))
     concatenated_az_scatter=np.concatenate(az_scatter)
     concatenated_za_scatter=np.concatenate(za_scatter)
@@ -100,12 +104,9 @@ for experimental_setup in experimental_setups:
     the_max = -np.inf
     print("len(fishers.items())=",len(fishers.items()))
     for inds, logdet in fishers.items():
-        print("logdet=",logdet)
         if logdet > the_max:
             the_max = logdet
             max_inds = inds
-        else:
-            raise ValueError("Fisher matrices so ill-conditioned that no primary contributors to Fisher information could be identified")
     print("determined indices of most useful elevation tracks")
 
     # >>> >>> >>> plot interpolated versions of Fisher-optimal tracks
