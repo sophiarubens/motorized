@@ -872,13 +872,11 @@ def fisher_loop(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees,
     fishers = {}
     print("fisher_loop: centre_ind =",centre_ind)
     combinations_for_fisher_loop=combinations(range(centre_ind), 5)
-    print("fisher_loop: len(list(combinations_for_fisher_loop)) =",len(list(combinations_for_fisher_loop)))
     print("fisher_loop: about to enter loop")
     k=0
-    for inds in combinations_for_fisher_loop:
-        print("fisher_loop: started loop trip",k)
+    for inds in list(combinations_for_fisher_loop):
         # Dmatr, az, za, noise_sigma, sb_for_els
-        Dmatr, _, _, noise_sigma, _ = get_Dmatr_from_trees(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees,
+        Dmatr, _, _, noise_sigma = get_Dmatr_from_trees(az_scatter, za_scatter, Dmatr_trees, noise_sigma_trees,
                                                            np.array(inds), get_noise_sigma=use_noise_weighting)
         if use_noise_weighting:
             Dmatr /= noise_sigma[:, None]
