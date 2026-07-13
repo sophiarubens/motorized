@@ -14,7 +14,8 @@ for experimental_setup in experimental_setups:
     # mode="rot" # overwrite for array shape compatibility testing benchmarks
 
     # >>> >>> >>> preposterously many tracks -> can think of as a not-in-the-programming-sense library to draw from after computing the Fisher-optimal sampling pattern
-    az_scatter, za_scatter = draw_tracks(el_delta=0.5, rots=np.atleast_1d((0.,)), mode=mode, nod_params=nod_params) # compute the tracks
+    az_scatter, za_scatter = draw_tracks(el_delta=0.5, rots=np.atleast_1d((0.,)), # ok to hard-code lack of rotation in this script because none of the hypotheticals involve rotation
+                                         mode=mode, nod_params=nod_params, name=name) # compute the tracks
     print("len(az_scatter) =",len(az_scatter))
     concatenated_az_scatter=np.concatenate(az_scatter)
     concatenated_za_scatter=np.concatenate(za_scatter)
@@ -85,7 +86,7 @@ for experimental_setup in experimental_setups:
     # >>> >>> >>> pick optimal tracks
     # make sure the Fisher matrices based on the cached design matrices are easily accessible (import or re-compute)
     fisher_path = f"{outdir}fishers_"+name+".yaml"
-    RECALC = True
+    RECALC = False
     # if os.path.exists(fisher_path) and not RECALC:      # import if possible
     if not RECALC:
         with open(fisher_path, "rb") as fisher_file:
