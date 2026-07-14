@@ -195,6 +195,10 @@ def get_points_within_view(az_deg, alt_deg, fov=10.):
 
     # Find part of track within view
     za_deg = 90. - alt_deg
+    # plt.figure()
+    # plt.plot(za_deg)
+    # plt.savefig("za_deg_{:6.3f}.png".format(za_deg[0]))
+    # plt.close()
     track_within_view = za_deg <= fov
 
 
@@ -247,6 +251,31 @@ def plot_fullsky_tracks(sky, x_ncp, y_ncp, name="sky_tracks"):
     plt.savefig(name,dpi=dpiuse)
 
     return
+
+def plot_omniscient_sky(az_scatter, za_scatter, src,
+                        freqs=None):
+    fig=plt.figure(figsize=(10,6),layout="constrained")
+    for i,az_track in enumerate(az_scatter):
+        za_track=za_scatter[i]
+        az_track_deg=np.rad2deg(az_track)
+        dec_track_deg=np.rad2deg(np.pi/2-za_track)
+        plt.plot(az_track_deg,dec_track_deg, 
+                 c="mediumturquoise") # these are probably in radians and probably need to be preprocessed and I probably can't iterate over them like this. pseudocode or whatever.
+    src_dec=src.dec.degrees
+    # print("az_track[0]=",az_track[0])
+    # print("az_track=",az_track)
+    N_timesteps=len(az_track) # use the most recent track just as a matter of convenience
+    generic_RAs=np.linspace(0,2*np.pi,N_timesteps)
+    src_dec_vec=src_dec*np.ones(N_timesteps)
+    # print("len(generic_RAs),len(src_dec_vec)=",len(generic_RAs),len(src_dec_vec))
+    # print("az_track.shape=",az_track.shape) # saving this for after the last known failure point because I think this is too list-y to have a shape
+    plt.plot(generic_RAs,src_dec_vec,
+             c="mediumpurple",ls="dashdot")
+    # plt.xlim(0,180)
+    # plt.ylim(0,90)
+    plt.xlabel("RA (deg)")
+    plt.ylabel("dec (deg)")
+    return fig
 
 def get_alt_az_above_horizon(alt_deg, az_deg):
     """
@@ -323,35 +352,24 @@ def get_DRAO_apparent(el, t, mode="rot",
         raise ValueError("unknown obs mode. try rot, el, or nod")
 
     apparent = (earth + DRAO).at(t).observe(src).apparent()
+    
     if mode=="nod":
         nod_amp, nod_freq = nod_params
         astropyified_time0 = t.tt * u.d
         sinusoid_arg_rad = (nod_freq * astropyified_time0).decompose() * u.rad
-        sinusoid_profile=nod_amp * np.sin(sinusoid_arg_rad)
-        # plt.figure()
-        # plt.plot(sinusoid_profile)
-        # plt.savefig("sinusoid_sanity_check.png")
-        # plt.close() # looks appropriately sinusoidal
-        nod = Angle(degrees=sinusoid_profile)
-
+        sinusoid_profile=nod_amp * np.sin(sinusoid_arg_rad) # actually sinusoidal with the expected amplitude -> no unit conversion silent failure
+        nod = Angle(degrees=sinusoid_profile) # still time-indexed (didn't get si)
         ra, dec, dist = apparent.radec()
-        # print("nod.degrees=",nod.degrees) # still time-indexed / did not get collapsed to a single value
         dec = Angle(degrees=dec.degrees + nod.degrees)
-        print()
-
         ra_rad = ra.radians *u.rad
         dec_rad = dec.radians *u.rad
         dist_au = dist.au
-
         x = dist_au * np.cos(dec_rad) * np.cos(ra_rad)
         y = dist_au * np.cos(dec_rad) * np.sin(ra_rad)
         z = dist_au * np.sin(dec_rad)
-
         xyz_au = np.array([x.value, y.value, z.value])
         newpos=Distance(au=xyz_au)
-        apparent.position = newpos
-        apparent.xyz= newpos
-        # apparent.position.au[:] = [x, y, z] # does not yield a plot that gives any indication of successful declination modulation. plotting script is not the problem because "el" mode tracks look normal
+        apparent.position = apparent.xyz = newpos # have to update the position *and* xyz attributed to correctly override the cached property
     
     return DRAO, apparent
 
@@ -543,10 +561,12 @@ def plot_tracks_within_fov(az_scatter, za_scatter):
     fig, ax = plt.subplots(subplot_kw={"projection": "polar"},
                            figsize=(6, 6))
 
-    ax.scatter(az_scatter, np.rad2deg(za_scatter), s=1, marker=".", label="From X Pols")
-    ax.scatter(az_scatter + np.pi/2, np.rad2deg(za_scatter), s=1, marker=".", label="From Y Pols")
+    ax.scatter(az_scatter, np.rad2deg(za_scatter), s=1, marker=".", label="From X Pols", c="C0")
+    ax.scatter(az_scatter + np.pi/2, np.rad2deg(za_scatter), s=1, marker=".", label="From Y Pols", c="C1")
+    # ax.plot(az_scatter, np.rad2deg(za_scatter), c="C0")
+    # ax.plot(az_scatter + np.pi/2, np.rad2deg(za_scatter), c="C1")
     ax.grid(False, axis="x")
-    ax.legend()
+    ax.legend(loc="upper right")
     fig.tight_layout()
 
     return fig
